@@ -1038,6 +1038,119 @@ func (api *baseAPI) traceTx(ctx context.Context, message *core.Message, txctx *C
 	return tracer.GetResult()
 }
 
+func (api *API) EventCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *TraceCallConfig) (interface{}, error) {
+	// Try to retrieve the specified block
+	var (
+		err     error
+		block   *types.Block
+		statedb *state.StateDB
+		release StateReleaseFunc
+	)
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		block, err = api.blockByHash(ctx, hash)
+	} else if number, ok := blockNrOrHash.Number(); ok {
+		if number == rpc.PendingBlockNumber {
+			// We don't have access to the miner here. For tracing 'future' transactions,
+			// it can be done with block- and state-overrides instead, which offers
+			// more flexibility and stability than trying to trace on 'pending', since
+			// the contents of 'pending' is unstable and probably not a true representation
+			// of what the next actual block is likely to contain.
+			return nil, errors.New("tracing on top of pending is not supported")
+		}
+		block, err = api.blockByNumber(ctx, number)
+	} else {
+		return nil, errors.New("invalid arguments; neither block nor hash specified")
+	}
+	if err != nil {
+		return nil, err
+	}
+	// try to recompute the state
+	reexec := defaultTraceReexec
+	if config != nil && config.Reexec != nil {
+		reexec = *config.Reexec
+	}
+
+	if config != nil && config.TxIndex != nil {
+		_, _, statedb, release, err = api.backend.StateAtTransaction(ctx, block, int(*config.TxIndex), reexec)
+	} else {
+		statedb, release, err = api.backend.StateAtBlock(ctx, block, reexec, nil, true, false)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	vmctx := core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), nil)
+
+	// Apply the customization rules if required.
+	if config != nil {
+		originalTime := block.Time()
+		config.BlockOverrides.Apply(&vmctx)
+		// Apply all relevant upgrades from [originalTime] to the block time set in the override.
+		// Should be applied before the state overrides.
+		blockContext := core.NewBlockContext(block.Number(), block.Time())
+		err = core.ApplyUpgrades(api.backend.ChainConfig(), &originalTime, blockContext, statedb)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := config.StateOverrides.Apply(statedb); err != nil {
+			return nil, err
+		}
+	}
+	// Execute the trace
+	msg, err := args.ToMessage(api.backend.RPCGasCap(), vmctx.BaseFee)
+	if err != nil {
+		return nil, err
+	}
+
+	txContext := core.NewEVMTxContext(msg)
+	vmenv := vm.NewEVM(vmctx, txContext, statedb, api.backend.ChainConfig(), vm.Config{Tracer: nil, NoBaseFee: true})
+	txctx := new(Context)
+
+	var traceConfig *TraceConfig
+	if config != nil {
+		traceConfig = &config.TraceConfig
+	} else {
+		traceConfig = &TraceConfig{}
+	}
+	timeout := time.Second
+	// Define a meaningful timeout of a single transaction trace
+	if traceConfig.Timeout != nil {
+		if timeout, err = time.ParseDuration(*traceConfig.Timeout); err != nil {
+			return nil, err
+		}
+	}
+	deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+	go func() {
+		<-deadlineCtx.Done()
+		if errors.Is(deadlineCtx.Err(), context.DeadlineExceeded) {
+			// Stop evm execution. Note cancellation is not necessarily immediate.
+			vmenv.Cancel()
+		}
+	}()
+	defer cancel()
+
+	// Call Prepare to clear out the statedb access list
+	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
+	result, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.GasLimit))
+	if err != nil {
+		return nil, fmt.Errorf("tracing failed: %w", err)
+	}
+
+	return &ExecutionEvent{
+		Gas:    result.UsedGas,
+		Failed: result.Failed(),
+		Logs:   statedb.GetLogs(txctx.TxHash, 0, txctx.BlockHash),
+	}, nil
+}
+
+type ExecutionEvent struct {
+	Gas    uint64       `json:"gas"`
+	Failed bool         `json:"failed"`
+	Logs   []*types.Log `json:"logs"`
+}
+
 // APIs return the collection of RPC services the tracer package offers.
 func APIs(backend Backend) []rpc.API {
 	// Append all the local APIs and return
