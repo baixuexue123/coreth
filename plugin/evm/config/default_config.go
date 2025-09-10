@@ -27,6 +27,7 @@ func NewDefaultConfig() Config {
 			"internal-blockchain",
 			"internal-transaction",
 			"debug-tracer",
+			"internal-tx-pool",
 		},
 		// Provides 2 minutes of buffer (2s block target) for a commit delay
 		AcceptorQueueLimit:        64,
