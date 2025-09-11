@@ -117,6 +117,7 @@ func (g *GossipEthTxPool) Subscribe(ctx context.Context) {
 // Add enqueues the transaction to the mempool. Subscribe should be called
 // to receive an event if tx is actually added to the mempool or not.
 func (g *GossipEthTxPool) Add(tx *GossipEthTx) error {
+	fmt.Printf("gossip received tx %s\n", tx.Tx.Hash().Hex())
 	return g.mempool.Add([]*types.Transaction{tx.Tx}, false, false)[0]
 }
 
