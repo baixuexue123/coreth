@@ -13,6 +13,7 @@ import (
 	"github.com/ava-labs/avalanchego/network/p2p/gossip"
 	"github.com/ava-labs/avalanchego/snow/engine/common"
 	"github.com/ava-labs/avalanchego/utils/logging"
+	"github.com/ava-labs/libevm/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -72,6 +73,7 @@ type txGossipHandler struct {
 }
 
 func (t *txGossipHandler) AppGossip(ctx context.Context, nodeID ids.NodeID, gossipBytes []byte) {
+	log.Info("Received tx gossip message", "nodeID", nodeID)
 	t.appGossipHandler.AppGossip(ctx, nodeID, gossipBytes)
 }
 
