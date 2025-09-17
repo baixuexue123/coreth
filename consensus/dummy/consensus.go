@@ -7,9 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"time"
 
-	"github.com/ava-labs/avalanchego/utils/timer/mockable"
 	"github.com/ava-labs/avalanchego/vms/components/gas"
 	"github.com/ava-labs/libevm/common"
 	"github.com/ava-labs/libevm/consensus/misc/eip4844"
@@ -26,12 +24,17 @@ import (
 )
 
 var (
-	allowedFutureBlockTime = 10 * time.Second // Max time from current time allowed for blocks, before they're considered future blocks
-
-	errInvalidBlockTime       = errors.New("timestamp less than parent's")
-	errUnclesUnsupported      = errors.New("uncles unsupported")
-	errExtDataGasUsedNil      = errors.New("extDataGasUsed is nil")
-	errExtDataGasUsedTooLarge = errors.New("extDataGasUsed is not uint64")
+	errUnclesUnsupported                   = errors.New("uncles unsupported")
+	errExtDataGasUsedNil                   = errors.New("extDataGasUsed is nil")
+	errExtDataGasUsedTooLarge              = errors.New("extDataGasUsed is not uint64")
+	ErrInvalidBlockGasCost                 = errors.New("invalid blockGasCost")
+	errInvalidExtDataGasUsed               = errors.New("invalid extDataGasUsed")
+	errInvalidExcessBlobGasBeforeCancun    = errors.New("invalid excessBlobGas before cancun")
+	errInvalidBlobGasUsedBeforeCancun      = errors.New("invalid blobGasUsed before cancun")
+	errInvalidParentBeaconRootBeforeCancun = errors.New("invalid parentBeaconRoot before cancun")
+	errMissingParentBeaconRoot             = errors.New("header is missing beaconRoot")
+	errNonEmptyParentBeaconRoot            = errors.New("invalid non-empty parentBeaconRoot")
+	errBlobsNotEnabled                     = errors.New("blobs not enabled on avalanche networks")
 )
 
 type Mode struct {
@@ -70,7 +73,6 @@ type (
 
 	DummyEngine struct {
 		cb                  ConsensusCallbacks
-		clock               *mockable.Clock
 		consensusMode       Mode
 		desiredTargetExcess *gas.Gas
 	}
@@ -79,12 +81,10 @@ type (
 func NewDummyEngine(
 	cb ConsensusCallbacks,
 	mode Mode,
-	clock *mockable.Clock,
 	desiredTargetExcess *gas.Gas,
 ) *DummyEngine {
 	return &DummyEngine{
 		cb:                  cb,
-		clock:               clock,
 		consensusMode:       mode,
 		desiredTargetExcess: desiredTargetExcess,
 	}
@@ -92,64 +92,42 @@ func NewDummyEngine(
 
 func NewETHFaker() *DummyEngine {
 	return &DummyEngine{
-		clock:         &mockable.Clock{},
 		consensusMode: Mode{ModeSkipBlockFee: true},
 	}
 }
 
 func NewFaker() *DummyEngine {
-	return &DummyEngine{
-		clock: &mockable.Clock{},
-	}
-}
-
-func NewFakerWithClock(cb ConsensusCallbacks, clock *mockable.Clock) *DummyEngine {
-	return &DummyEngine{
-		cb:    cb,
-		clock: clock,
-	}
+	return &DummyEngine{}
 }
 
 func NewFakerWithCallbacks(cb ConsensusCallbacks) *DummyEngine {
 	return &DummyEngine{
-		cb:    cb,
-		clock: &mockable.Clock{},
+		cb: cb,
 	}
 }
 
 func NewFakerWithMode(cb ConsensusCallbacks, mode Mode) *DummyEngine {
 	return &DummyEngine{
 		cb:            cb,
-		clock:         &mockable.Clock{},
-		consensusMode: mode,
-	}
-}
-
-func NewFakerWithModeAndClock(mode Mode, clock *mockable.Clock) *DummyEngine {
-	return &DummyEngine{
-		clock:         clock,
 		consensusMode: mode,
 	}
 }
 
 func NewCoinbaseFaker() *DummyEngine {
 	return &DummyEngine{
-		clock:         &mockable.Clock{},
 		consensusMode: Mode{ModeSkipCoinbase: true},
 	}
 }
 
 func NewFullFaker() *DummyEngine {
 	return &DummyEngine{
-		clock:         &mockable.Clock{},
 		consensusMode: Mode{ModeSkipHeader: true},
 	}
 }
 
 func verifyHeaderGasFields(config *extras.ChainConfig, header *types.Header, parent *types.Header) error {
-	if err := customheader.VerifyGasUsed(config, parent, header); err != nil {
-		return err
-	}
+	// Verifying the gas used occurs earlier in the block validation process in verifyIntrinsicGas, so
+	// customheader.VerifyGasUsed is not called here.
 	if err := customheader.VerifyGasLimit(config, parent, header); err != nil {
 		return err
 	}
@@ -198,7 +176,7 @@ func verifyHeaderGasFields(config *extras.ChainConfig, header *types.Header, par
 }
 
 // modified from consensus.go
-func (eng *DummyEngine) verifyHeader(chain consensus.ChainHeaderReader, header *types.Header, parent *types.Header, uncle bool) error {
+func verifyHeader(chain consensus.ChainHeaderReader, header *types.Header, parent *types.Header, uncle bool) error {
 	// Ensure that we do not verify an uncle
 	if uncle {
 		return errUnclesUnsupported
@@ -217,15 +195,6 @@ func (eng *DummyEngine) verifyHeader(chain consensus.ChainHeaderReader, header *
 		return err
 	}
 
-	// Verify the header's timestamp
-	if header.Time > uint64(eng.clock.Time().Add(allowedFutureBlockTime).Unix()) {
-		return consensus.ErrFutureBlock
-	}
-	// Verify the header's timestamp is not earlier than parent's
-	// it does include equality(==), so multiple blocks per second is ok
-	if header.Time < parent.Time {
-		return errInvalidBlockTime
-	}
 	// Verify that the block number is parent's +1
 	if diff := new(big.Int).Sub(header.Number, parent.Number); diff.Cmp(big.NewInt(1)) != 0 {
 		return consensus.ErrInvalidNumber
@@ -235,24 +204,24 @@ func (eng *DummyEngine) verifyHeader(chain consensus.ChainHeaderReader, header *
 	if !cancun {
 		switch {
 		case header.ExcessBlobGas != nil:
-			return fmt.Errorf("invalid excessBlobGas: have %d, expected nil", *header.ExcessBlobGas)
+			return fmt.Errorf("%w: have %d, expected nil", errInvalidExcessBlobGasBeforeCancun, *header.ExcessBlobGas)
 		case header.BlobGasUsed != nil:
-			return fmt.Errorf("invalid blobGasUsed: have %d, expected nil", *header.BlobGasUsed)
+			return fmt.Errorf("%w: have %d, expected nil", errInvalidBlobGasUsedBeforeCancun, *header.BlobGasUsed)
 		case header.ParentBeaconRoot != nil:
-			return fmt.Errorf("invalid parentBeaconRoot, have %#x, expected nil", *header.ParentBeaconRoot)
+			return fmt.Errorf("%w: have %#x, expected nil", errInvalidParentBeaconRootBeforeCancun, *header.ParentBeaconRoot)
 		}
 	} else {
 		if header.ParentBeaconRoot == nil {
-			return errors.New("header is missing beaconRoot")
+			return errMissingParentBeaconRoot
 		}
 		if *header.ParentBeaconRoot != (common.Hash{}) {
-			return fmt.Errorf("invalid parentBeaconRoot, have %#x, expected empty", *header.ParentBeaconRoot)
+			return fmt.Errorf("%w: have %#x, expected empty", errNonEmptyParentBeaconRoot, *header.ParentBeaconRoot)
 		}
 		if err := eip4844.VerifyEIP4844Header(parent, header); err != nil {
 			return err
 		}
 		if *header.BlobGasUsed > 0 { // VerifyEIP4844Header ensures BlobGasUsed is non-nil
-			return fmt.Errorf("blobs not enabled on avalanche networks: used %d blob gas, expected 0", *header.BlobGasUsed)
+			return fmt.Errorf("%w: used %d blob gas, expected 0", errBlobsNotEnabled, *header.BlobGasUsed)
 		}
 	}
 	return nil
@@ -277,7 +246,7 @@ func (eng *DummyEngine) VerifyHeader(chain consensus.ChainHeaderReader, header *
 		return consensus.ErrUnknownAncestor
 	}
 	// Sanity checks passed, do a proper verification
-	return eng.verifyHeader(chain, header, parent, false)
+	return verifyHeader(chain, header, parent, false)
 }
 
 func (*DummyEngine) VerifyUncles(_ consensus.ChainReader, block *types.Block) error {
@@ -315,7 +284,7 @@ func (eng *DummyEngine) Finalize(chain consensus.ChainHeaderReader, block *types
 		timestamp,
 	)
 	if !utils.BigEqual(blockGasCost, expectedBlockGasCost) {
-		return fmt.Errorf("invalid blockGasCost: have %d, want %d", blockGasCost, expectedBlockGasCost)
+		return fmt.Errorf("%w: have %d, want %d", ErrInvalidBlockGasCost, blockGasCost, expectedBlockGasCost)
 	}
 	if config.IsApricotPhase4(timestamp) {
 		// Validate extDataGasUsed and BlockGasCost match expectations
@@ -326,7 +295,7 @@ func (eng *DummyEngine) Finalize(chain consensus.ChainHeaderReader, block *types
 			extDataGasUsed = new(big.Int).Set(common.Big0)
 		}
 		if blockExtDataGasUsed := customtypes.BlockExtDataGasUsed(block); blockExtDataGasUsed == nil || !blockExtDataGasUsed.IsUint64() || blockExtDataGasUsed.Cmp(extDataGasUsed) != 0 {
-			return fmt.Errorf("invalid extDataGasUsed: have %d, want %d", blockExtDataGasUsed, extDataGasUsed)
+			return fmt.Errorf("%w: have %d, want %d", errInvalidExtDataGasUsed, blockExtDataGasUsed, extDataGasUsed)
 		}
 
 		// Verify the block fee was paid.
