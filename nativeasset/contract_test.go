@@ -5,6 +5,7 @@ package nativeasset_test
 
 import (
 	"math/big"
+	"os"
 	"testing"
 
 	"github.com/ava-labs/libevm/common"
@@ -15,18 +16,23 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	// Force import core to register the VM hooks.
-	// This allows testing the precompiles by exercising the EVM.
-	_ "github.com/ava-labs/coreth/core"
-
+	"github.com/ava-labs/coreth/core"
 	"github.com/ava-labs/coreth/core/extstate"
 	"github.com/ava-labs/coreth/params"
+	"github.com/ava-labs/coreth/plugin/evm/customtypes"
 
 	ethtypes "github.com/ava-labs/libevm/core/types"
 	ethparams "github.com/ava-labs/libevm/params"
 
 	. "github.com/ava-labs/coreth/nativeasset"
 )
+
+func TestMain(m *testing.M) {
+	core.RegisterExtras()
+	customtypes.Register()
+	params.RegisterExtras()
+	os.Exit(m.Run())
+}
 
 // CanTransfer checks whether there are enough funds in the address' account to make a transfer.
 // This does not take the necessary gas in to account to make the transfer valid.
@@ -98,9 +104,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				// Create account
 				statedb.CreateAccount(userAddr1)
 				// Set balance to pay for gas fee
@@ -122,9 +126,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				// Create account
 				statedb.CreateAccount(userAddr1)
 				// Set balance to pay for gas fee
@@ -149,9 +151,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				// Create account
 				statedb.CreateAccount(userAddr1)
 				// Set balance to pay for gas fee
@@ -175,9 +175,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				return statedb
 			},
 			from:                 userAddr1,
@@ -193,9 +191,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				return statedb
 			},
 			from:                 userAddr1,
@@ -211,9 +207,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				return statedb
 			},
 			from:                 userAddr1,
@@ -229,9 +223,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				statedb.SetBalance(userAddr1, u256Hundred)
 				wrappedStateDB := extstate.New(statedb)
 				wrappedStateDB.AddBalanceMultiCoin(userAddr1, assetID, bigHundred)
@@ -264,9 +256,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				statedb.SetBalance(userAddr1, u256Hundred)
 				wrappedStateDB := extstate.New(statedb)
 				wrappedStateDB.AddBalanceMultiCoin(userAddr1, assetID, bigHundred)
@@ -301,9 +291,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				statedb.SetBalance(userAddr1, u256Hundred)
 				wrappedStateDB := extstate.New(statedb)
 				wrappedStateDB.AddBalanceMultiCoin(userAddr1, assetID, big.NewInt(50))
@@ -335,9 +323,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				statedb.SetBalance(userAddr1, uint256.NewInt(50))
 				wrappedStateDB := extstate.New(statedb)
 				wrappedStateDB.AddBalanceMultiCoin(userAddr1, assetID, big.NewInt(50))
@@ -369,9 +355,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				statedb.SetBalance(userAddr1, u256Hundred)
 				wrappedStateDB := extstate.New(statedb)
 				wrappedStateDB.AddBalanceMultiCoin(userAddr1, assetID, bigHundred)
@@ -391,9 +375,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				statedb.SetBalance(userAddr1, u256Hundred)
 				wrappedStateDB := extstate.New(statedb)
 				wrappedStateDB.AddBalanceMultiCoin(userAddr1, assetID, bigHundred)
@@ -425,9 +407,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				statedb.SetBalance(userAddr1, u256Hundred)
 				wrappedStateDB := extstate.New(statedb)
 				wrappedStateDB.AddBalanceMultiCoin(userAddr1, assetID, bigHundred)
@@ -447,9 +427,7 @@ func TestStatefulPrecompile(t *testing.T) {
 		{
 			setupStateDB: func() *state.StateDB {
 				statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				statedb.SetBalance(userAddr1, u256Hundred)
 				wrappedStateDB := extstate.New(statedb)
 				wrappedStateDB.AddBalanceMultiCoin(userAddr1, assetID, bigHundred)
