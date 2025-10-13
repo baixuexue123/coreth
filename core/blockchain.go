@@ -1221,6 +1221,13 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, parentRoot common.
 	rawdb.WriteBlock(blockBatch, block)
 	rawdb.WriteReceipts(blockBatch, block.Hash(), block.NumberU64(), receipts)
 	rawdb.WritePreimages(blockBatch, state.Preimages())
+
+	// Index transactions immediately when block is inserted, not just when accepted
+	// This allows querying transactions in unfinalized blocks when AllowUnfinalizedQueries is enabled
+	if !bc.cacheConfig.SkipTxIndexing {
+		rawdb.WriteTxLookupEntriesByBlock(blockBatch, block)
+	}
+
 	if err := blockBatch.Write(); err != nil {
 		log.Crit("Failed to write block into disk", "err", err)
 	}
@@ -1555,7 +1562,7 @@ func (bc *BlockChain) reorg(oldHead *types.Header, newHead *types.Block) error {
 		logFn(msg, "number", commonBlock.Number(), "hash", commonBlock.Hash(),
 			"drop", len(oldChain), "dropfrom", oldChain[0].Hash(), "add", len(newChain), "addfrom", newChain[0].Hash())
 	} else {
-		log.Debug("Preference change (rewind to ancestor) occurred", "oldnum", oldHead.Number, "oldhash", oldHead.Hash(), "newnum", newHead.Number(), "newhash", newHead.Hash())
+		log.Debug("Preference change (rewind to ancestor) occurred", "oldnum", oldHead.Number, "oldhash", oldHead.Hash(), "newnum", newHead.Number, "newhash", newHead.Hash())
 	}
 	// Reset the tx lookup cache in case to clear stale txlookups.
 	// This is done before writing any new chain data to avoid the
