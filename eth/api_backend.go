@@ -390,14 +390,13 @@ func (b *EthAPIBackend) GetTransaction(ctx context.Context, txHash common.Hash) 
 		return false, nil, common.Hash{}, 0, 0, nil
 	}
 
-	// Respond as if the transaction does not exist if it is not yet in an
-	// accepted block. We explicitly choose not to error here to avoid breaking
-	// expectations with clients (expect an empty response when a transaction
-	// does not exist).
+	// Return an error if the transaction is in an unaccepted block and
+	// unfinalized queries are not allowed. This is consistent with other
+	// RPC methods that return ErrUnfinalizedData for unfinalized data.
 	acceptedBlock := b.eth.LastAcceptedBlock()
 	if !b.IsAllowUnfinalizedQueries() && acceptedBlock != nil && tx != nil {
 		if lookup.BlockIndex > acceptedBlock.NumberU64() {
-			return false, nil, common.Hash{}, 0, 0, nil
+			return false, nil, common.Hash{}, 0, 0, ErrUnfinalizedData
 		}
 	}
 
