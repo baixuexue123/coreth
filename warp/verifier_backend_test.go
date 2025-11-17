@@ -4,7 +4,6 @@
 package warp
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -52,8 +51,7 @@ func TestAddressedCallSignatures(t *testing.T) {
 				require.NoError(t, err)
 				signature, err := snowCtx.WarpSigner.Sign(msg)
 				require.NoError(t, err)
-
-				backend.AddMessage(msg)
+				require.NoError(t, backend.AddMessage(msg))
 				return msg.Bytes(), signature
 			},
 			verifyStats: func(t *testing.T, stats *verifierStats) {
@@ -108,7 +106,7 @@ func TestAddressedCallSignatures(t *testing.T) {
 				protoMsg := &sdk.SignatureRequest{Message: requestBytes}
 				protoBytes, err := proto.Marshal(protoMsg)
 				require.NoError(t, err)
-				responseBytes, appErr := handler.AppRequest(context.Background(), ids.GenerateTestNodeID(), time.Time{}, protoBytes)
+				responseBytes, appErr := handler.AppRequest(t.Context(), ids.GenerateTestNodeID(), time.Time{}, protoBytes)
 				require.ErrorIs(t, appErr, test.err)
 				test.verifyStats(t, warpBackend.(*backend).stats)
 
@@ -219,7 +217,7 @@ func TestBlockSignatures(t *testing.T) {
 				protoMsg := &sdk.SignatureRequest{Message: requestBytes}
 				protoBytes, err := proto.Marshal(protoMsg)
 				require.NoError(t, err)
-				responseBytes, appErr := handler.AppRequest(context.Background(), ids.GenerateTestNodeID(), time.Time{}, protoBytes)
+				responseBytes, appErr := handler.AppRequest(t.Context(), ids.GenerateTestNodeID(), time.Time{}, protoBytes)
 				require.ErrorIs(t, appErr, test.err)
 
 				test.verifyStats(t, warpBackend.(*backend).stats)
