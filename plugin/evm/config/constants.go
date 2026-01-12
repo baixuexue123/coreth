@@ -19,5 +19,5 @@ const (
 	TxGossipThrottlingPeriod             = time.Hour
 	// TxGossipRequestsPerPeer =  TxGossipThrottlingPeriod / Config.PullGossipFrequency
 	TxGossipRequestsPerPeer = 3600
-	TxGossipPollSize        = 1
+	TxGossipPollSize        = 5
 )
