@@ -116,6 +116,10 @@ type Config struct {
 	PullGossipFrequency       Duration `json:"pull-gossip-frequency"`
 	RegossipFrequency         Duration `json:"regossip-frequency"`
 
+	// PriorityGossipAddresses is a list of addresses that should trigger immediate gossip
+	// when a transaction with a matching "to" address is added to the mempool.
+	PriorityGossipAddresses []common.Address `json:"priority-gossip-addresses"`
+
 	// Log
 	LogLevel      string `json:"log-level"`
 	LogJSONFormat bool   `json:"log-json-format"`

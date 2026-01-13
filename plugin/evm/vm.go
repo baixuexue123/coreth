@@ -553,7 +553,7 @@ func (vm *VM) initializeChain(lastAcceptedHash common.Hash) error {
 	vm.eth, err = eth.New(
 		node,
 		&vm.ethConfig,
-		&EthPushGossiper{vm: vm},
+		NewEthPushGossiper(vm, vm.config.PriorityGossipAddresses),
 		vm.chaindb,
 		eth.Settings{MaxBlocksPerRequest: vm.config.MaxBlocksPerRequest},
 		lastAcceptedHash,

@@ -165,6 +165,21 @@ func (tx *GossipEthTx) GossipID() ids.ID {
 // the RPC and added to the mempool to peers.
 type EthPushGossiper struct {
 	vm *VM
+	// priorityAddresses is a set of addresses that trigger immediate gossip
+	// when a transaction with a matching "to" address is added.
+	priorityAddresses map[ethcommon.Address]struct{}
+}
+
+// NewEthPushGossiper creates a new EthPushGossiper with the given priority addresses.
+func NewEthPushGossiper(vm *VM, priorityAddresses []ethcommon.Address) *EthPushGossiper {
+	addrSet := make(map[ethcommon.Address]struct{}, len(priorityAddresses))
+	for _, addr := range priorityAddresses {
+		addrSet[addr] = struct{}{}
+	}
+	return &EthPushGossiper{
+		vm:                vm,
+		priorityAddresses: addrSet,
+	}
 }
 
 func (e *EthPushGossiper) Add(tx *types.Transaction) {
@@ -175,4 +190,25 @@ func (e *EthPushGossiper) Add(tx *types.Transaction) {
 		return
 	}
 	ethTxPushGossiper.Add(&GossipEthTx{tx})
+
+	// If the transaction's "to" address is in the priority list, trigger immediate gossip
+	if e.isPriorityTx(tx) {
+		log.Info("triggering immediate gossip for priority transaction", "txHash", tx.Hash(), "to", tx.To())
+		if err := ethTxPushGossiper.Gossip(context.Background()); err != nil {
+			log.Warn("failed to trigger immediate gossip", "err", err)
+		}
+	}
+}
+
+// isPriorityTx checks if the transaction's "to" address is in the priority list.
+func (e *EthPushGossiper) isPriorityTx(tx *types.Transaction) bool {
+	if len(e.priorityAddresses) == 0 {
+		return false
+	}
+	to := tx.To()
+	if to == nil {
+		return false
+	}
+	_, exists := e.priorityAddresses[*to]
+	return exists
 }
